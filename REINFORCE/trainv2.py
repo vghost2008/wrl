@@ -3,6 +3,7 @@ from gym.spaces import Discrete,Box
 from modeling.mlp import MLP
 from REINFORCE.simple_pg import SimplePG
 from REINFORCE.simple_pg2 import SimplePG2
+from REINFORCE.simple_pg3 import SimplePG3
 import tensorflow as tf
 import numpy as np
 import wnn
@@ -13,7 +14,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 
 class Trainer(object):
-    def __init__(self,env_name="CartPole-v0",model='SimplePG2'):
+    def __init__(self,env_name="CartPole-v0",model='SimplePG3'):
         env = gym.make(env_name)
         assert isinstance(env.observation_space,Box), "This example only works for envs with continuous state spaces."
         assert isinstance(env.action_space,Discrete),"This example only works for envs with discrete action spaces."
@@ -22,9 +23,10 @@ class Trainer(object):
         n_acts = env.action_space.n
 
         logits_net = MLP(layers=[32,32,n_acts])
+        v_net = MLP(layers=[32,32,1],scope="VNet")
         self.obs = tf.placeholder(dtype=tf.float32,shape=[None,obs_dim])
 
-        self.spg = REINFORCE_REGISTRY.get(model)(net=logits_net)
+        self.spg = REINFORCE_REGISTRY.get(model)(net=logits_net,net_v=v_net)
 
         self.sess = tf.Session()
         self.env = env
@@ -80,10 +82,11 @@ class Trainer(object):
                 finished_rendering_this_epoch = True
                 if len(batch_obs)>self.batch_size:
                     break
-
+        base_line = self.sess.run(self.spg.get_base_line(),feed_dict={self.obs:batch_obs})
         feed_dict = {self.obs:batch_obs,
                      self.spg.action_ph:batch_acts,
-                     self.spg.weight_ph:batch_weights,
+                     self.spg.weight_ph:np.array(batch_weights)-base_line,
+                     self.spg.retgs_ph:batch_weights,
                     }
         loss,global_step,_ = self.sess.run([self.loss,self.global_step,self.train_op],feed_dict=feed_dict)
         print(f"Step {global_step}, loss = {loss}, env steps = {np.mean(env_steps)}")
@@ -99,6 +102,4 @@ class Trainer(object):
 if __name__ == "__main__":
     trainer = Trainer()
     trainer.train()
-
-
 
